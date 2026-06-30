@@ -1,58 +1,75 @@
 import { useEffect, useState } from "react";
-import { StyleSheet, useWindowDimensions } from "react-native";
+import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import MaskedView from "@react-native-masked-view/masked-view";
+import { LinearGradient } from "expo-linear-gradient";
 import Animated, {
-  interpolate,
+  Easing,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
   withTiming,
 } from "react-native-reanimated";
 
-// How long the single left -> right slide takes (slower = bigger number).
-const SLIDE_DURATION = 4000;
-// Extra pause after the slide finishes before showing Home.
-const HOLD_AFTER_SLIDE = 800;
-// Gap kept between the text and the screen edges.
-const EDGE_PADDING = 16;
+// How long one shimmer sweep (left -> right) takes.
+const SWEEP_DURATION = 1400;
+// How many times the highlight sweeps across before showing Home.
+const SWEEP_COUNT = 3;
+// Short pause after the last sweep before revealing Home.
+const HOLD_AFTER = 500;
+
+const AnimatedGradient = Animated.createAnimatedComponent(LinearGradient);
 
 export default function AnimatedSplash({ onFinish }: { onFinish: () => void }) {
   const { width } = useWindowDimensions();
-  const [textWidth, setTextWidth] = useState(0);
-  // 0 = far left, 1 = far right. Drives both position and the fade.
+  // Width of the bright highlight band that slides across the text.
+  const [bandWidth] = useState(() => Math.round(width * 0.6));
+  // 0 = band fully off the left edge, 1 = band fully off the right edge.
   const progress = useSharedValue(0);
 
   useEffect(() => {
-    // Wait until we've measured the text so we know how far it can travel.
-    if (!textWidth) return;
+    progress.value = withRepeat(
+      withTiming(1, { duration: SWEEP_DURATION, easing: Easing.linear }),
+      SWEEP_COUNT,
+      false,
+    );
 
-    progress.value = withTiming(1, { duration: SLIDE_DURATION });
-
-    // Reveal Home after the slide finishes (plus a short pause).
-    const timer = setTimeout(onFinish, SLIDE_DURATION + HOLD_AFTER_SLIDE);
+    const timer = setTimeout(onFinish, SWEEP_DURATION * SWEEP_COUNT + HOLD_AFTER);
     return () => clearTimeout(timer);
-  }, [onFinish, progress, width, textWidth]);
+  }, [onFinish, progress]);
 
-  const textStyle = useAnimatedStyle(() => {
-    const distance = width - textWidth - EDGE_PADDING * 2;
+  const bandStyle = useAnimatedStyle(() => {
+    // Travel from just left of the screen to just past the right edge.
+    const start = -bandWidth;
+    const end = width;
     return {
-      transform: [
-        { translateX: progress.value * distance },
-        // Shrink a touch over the last stretch so it recedes into the screen.
-        { scale: interpolate(progress.value, [0.7, 1], [1, 0.6], "clamp") },
-      ],
-      // Fade out over the final 30% of the trip -> disappears at the right.
-      opacity: interpolate(progress.value, [0.7, 1], [1, 0], "clamp"),
+      transform: [{ translateX: start + progress.value * (end - start) }],
     };
   });
 
   return (
-    <Animated.View style={styles.container}>
-      <Animated.Text
-        style={[styles.text, textStyle]}
-        onLayout={(e) => setTextWidth(e.nativeEvent.layout.width)}
+    <View style={styles.container}>
+      <MaskedView
+        style={styles.mask}
+        maskElement={
+          <View style={styles.maskWrap}>
+            <Text style={styles.text}>Medium Splash</Text>
+          </View>
+        }
       >
-        Medium Splash
-      </Animated.Text>
-    </Animated.View>
+        {/* Base (dim) color of the text. */}
+        <View style={[StyleSheet.absoluteFill, styles.base]} />
+        {/* Bright highlight band that sweeps across, revealing the shimmer. */}
+        <Animated.View style={[styles.bandWrap, bandStyle, { width: bandWidth }]}>
+          <AnimatedGradient
+            colors={["transparent", "#ffffff", "transparent"]}
+            locations={[0, 0.5, 1]}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={StyleSheet.absoluteFill}
+          />
+        </Animated.View>
+      </MaskedView>
+    </View>
   );
 }
 
@@ -61,11 +78,29 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "#0B1221",
     justifyContent: "center",
-    alignItems: "flex-start",
-    paddingHorizontal: EDGE_PADDING,
+    alignItems: "center",
+  },
+  mask: {
+    height: 60,
+    width: "100%",
+  },
+  maskWrap: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "transparent",
+  },
+  base: {
+    // Dim version of the text that the highlight sweeps over.
+    backgroundColor: "#3A4A66",
+  },
+  bandWrap: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
   },
   text: {
-    color: "#ffffff",
+    color: "#000000",
     fontSize: 32,
     fontWeight: "700",
   },
