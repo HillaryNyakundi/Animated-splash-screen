@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 // The word that gets typed out and then erased.
@@ -15,11 +15,20 @@ const END_HOLD = 400;
 
 type Phase = "typing" | "holding" | "erasing" | "done";
 
-export default function AnimatedSplash({ onFinish }: { onFinish: () => void }) {
+export default function AnimatedSplash({
+  onFinish,
+  onReady,
+}: {
+  onFinish: () => void;
+  // Fired once when the splash has laid out its first frame, so the caller can
+  // hide the native splash without a blank flash.
+  onReady?: () => void;
+}) {
   // In "typing" this counts letters revealed from the left (0 -> N).
   // In "erasing" it counts letters hidden from the left (0 -> N).
   const [count, setCount] = useState(0);
   const [phase, setPhase] = useState<Phase>("typing");
+  const reported = useRef(false);
 
   // Each render schedules exactly one timer for the current phase, and the
   // cleanup clears it so nothing fires after unmount.
@@ -66,7 +75,14 @@ export default function AnimatedSplash({ onFinish }: { onFinish: () => void }) {
   };
 
   return (
-    <View style={styles.container}>
+    <View
+      style={styles.container}
+      onLayout={() => {
+        if (reported.current) return;
+        reported.current = true;
+        onReady?.();
+      }}
+    >
       <View style={styles.row}>
         {LETTERS.map((ch, i) => (
           <Text key={i} style={[styles.text, { opacity: isVisible(i) ? 1 : 0 }]}>
