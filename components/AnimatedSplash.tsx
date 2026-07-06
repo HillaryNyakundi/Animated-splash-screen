@@ -1,74 +1,79 @@
 import { useEffect, useState } from "react";
-import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
-import MaskedView from "@react-native-masked-view/masked-view";
-import { LinearGradient } from "expo-linear-gradient";
-import Animated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from "react-native-reanimated";
+import { StyleSheet, Text, View } from "react-native";
 
-// How long one shimmer sweep (left -> right) takes.
-const SWEEP_DURATION = 1400;
-// How many times the highlight sweeps across before showing Home.
-const SWEEP_COUNT = 3;
-// Short pause after the last sweep before revealing Home.
-const HOLD_AFTER = 500;
+// The word that gets typed out and then erased.
+const WORD = "Medium Splash";
+const LETTERS = WORD.split("");
+// Time between each letter appearing while typing.
+const TYPE_SPEED = 130;
+// Time between each letter disappearing while erasing (usually snappier).
+const ERASE_SPEED = 70;
+// Pause on the fully typed word before erasing starts.
+const HOLD_MS = 900;
+// Pause on the empty line after erasing, before revealing Home.
+const END_HOLD = 400;
 
-const AnimatedGradient = Animated.createAnimatedComponent(LinearGradient);
+type Phase = "typing" | "holding" | "erasing" | "done";
 
 export default function AnimatedSplash({ onFinish }: { onFinish: () => void }) {
-  const { width } = useWindowDimensions();
-  // Width of the bright highlight band that slides across the text.
-  const [bandWidth] = useState(() => Math.round(width * 0.6));
-  // 0 = band fully off the left edge, 1 = band fully off the right edge.
-  const progress = useSharedValue(0);
+  // In "typing" this counts letters revealed from the left (0 -> N).
+  // In "erasing" it counts letters hidden from the left (0 -> N).
+  const [count, setCount] = useState(0);
+  const [phase, setPhase] = useState<Phase>("typing");
 
+  // Each render schedules exactly one timer for the current phase, and the
+  // cleanup clears it so nothing fires after unmount.
   useEffect(() => {
-    progress.value = withRepeat(
-      withTiming(1, { duration: SWEEP_DURATION, easing: Easing.linear }),
-      SWEEP_COUNT,
-      false,
-    );
+    if (phase === "typing") {
+      if (count >= LETTERS.length) {
+        setPhase("holding");
+        return;
+      }
+      const t = setTimeout(() => setCount((c) => c + 1), TYPE_SPEED);
+      return () => clearTimeout(t);
+    }
 
-    const timer = setTimeout(onFinish, SWEEP_DURATION * SWEEP_COUNT + HOLD_AFTER);
-    return () => clearTimeout(timer);
-  }, [onFinish, progress]);
+    if (phase === "holding") {
+      const t = setTimeout(() => {
+        setCount(0); // restart the counter, now meaning "erased from left".
+        setPhase("erasing");
+      }, HOLD_MS);
+      return () => clearTimeout(t);
+    }
 
-  const bandStyle = useAnimatedStyle(() => {
-    // Travel from just left of the screen to just past the right edge.
-    const start = -bandWidth;
-    const end = width;
-    return {
-      transform: [{ translateX: start + progress.value * (end - start) }],
-    };
-  });
+    if (phase === "erasing") {
+      if (count >= LETTERS.length) {
+        const t = setTimeout(() => setPhase("done"), END_HOLD);
+        return () => clearTimeout(t);
+      }
+      // Hide one more letter from the left -> the word erases left to right.
+      const t = setTimeout(() => setCount((c) => c + 1), ERASE_SPEED);
+      return () => clearTimeout(t);
+    }
+
+    if (phase === "done") {
+      onFinish();
+    }
+  }, [phase, count, onFinish]);
+
+  // Whether letter `i` is currently shown. Every letter always occupies its
+  // slot (opacity only) so the word block stays centered and letters never move.
+  const isVisible = (i: number) => {
+    if (phase === "typing") return i < count;
+    if (phase === "holding") return true;
+    if (phase === "erasing") return i >= count;
+    return false;
+  };
 
   return (
     <View style={styles.container}>
-      <MaskedView
-        style={styles.mask}
-        maskElement={
-          <View style={styles.maskWrap}>
-            <Text style={styles.text}>Medium Splash</Text>
-          </View>
-        }
-      >
-        {/* Base (dim) color of the text. */}
-        <View style={[StyleSheet.absoluteFill, styles.base]} />
-        {/* Bright highlight band that sweeps across, revealing the shimmer. */}
-        <Animated.View style={[styles.bandWrap, bandStyle, { width: bandWidth }]}>
-          <AnimatedGradient
-            colors={["transparent", "#ffffff", "transparent"]}
-            locations={[0, 0.5, 1]}
-            start={{ x: 0, y: 0.5 }}
-            end={{ x: 1, y: 0.5 }}
-            style={StyleSheet.absoluteFill}
-          />
-        </Animated.View>
-      </MaskedView>
+      <View style={styles.row}>
+        {LETTERS.map((ch, i) => (
+          <Text key={i} style={[styles.text, { opacity: isVisible(i) ? 1 : 0 }]}>
+            {ch}
+          </Text>
+        ))}
+      </View>
     </View>
   );
 }
@@ -80,27 +85,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  mask: {
-    height: 60,
-    width: "100%",
-  },
-  maskWrap: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "transparent",
-  },
-  base: {
-    // Dim version of the text that the highlight sweeps over.
-    backgroundColor: "#3A4A66",
-  },
-  bandWrap: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
+  row: {
+    flexDirection: "row",
   },
   text: {
-    color: "#000000",
+    color: "#ffffff",
     fontSize: 32,
     fontWeight: "700",
   },
